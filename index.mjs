@@ -95,7 +95,6 @@ const ENDPOINT_HOST = "rxresu.me"
 const API_KEY_ENV = 'RXRESUME_API_KEY'
 const MAX_RESPONSE_BYTES = 512 * 1024
 const REQUEST_TIMEOUT_MS = 30000
-const WRITE_APPROVE_OPTION = 'allow-once'
 
 // 需要自托管时另建插件包，配插件专属配置与只绑定该 https 来源的独立凭据；
 // 不要靠改这里复用云端 key —— 那等于把云端凭据发往任意域名。
@@ -206,52 +205,10 @@ async function callMcpTool(toolName, args, ctx, options) {
   return JSON.stringify(data.result ?? '')
 }
 
-// 确认文案要说清「对谁做什么」：只写"是否继续"的弹窗等于没确认
-function describeTarget(args) {
-  const keys = ['id', 'resumeId', 'resume_id', 'slug', 'title', 'name', 'username', 'email']
-  for (const k of keys) {
-    const v = args && args[k]
-    if (typeof v === 'string' && v) return k + '=' + v.slice(0, 80)
-  }
-  const names = Object.keys(args || {})
-  return names.length ? '参数：' + names.slice(0, 6).join(', ') : '（无参数）'
-}
-
-// 远端写操作逐次确认：requiresApproval 在完全权限会话里不保证弹窗，
-// 这里直接走 AGH 的 decisions 端口，让每次写入都留下一条带目标与动作的决策记录。
-async function confirmRemoteWrite(toolName, args, ctx) {
-  const decisions = ctx && ctx.decisions
-  if (!decisions || typeof decisions.request !== 'function' || typeof decisions.wait !== 'function') {
-    throw new Error('当前运行环境未提供 decisions 确认端口，无法确认远端写操作 ' + toolName + '，已拒绝执行')
-  }
-  const target = describeTarget(args)
-  const intent = JSON.stringify(args || {}).slice(0, 400)
-  const spec = {
-    key: ('agh-plugin-reactive-resume:' + toolName + ':' + target).slice(0, 256),
-    purpose: 'tool.permission',
-    subject: { tool: toolName, endpoint: ENDPOINT, target: target, intent: intent },
-    prompt: '即将通过 ' + ENDPOINT + ' 对远端数据执行写操作「' + toolName + '」。\n目标：' + target + '\n拟执行内容：' + intent + '\n该操作会修改远端记录，请确认。',
-    options: [WRITE_APPROVE_OPTION, 'reject'],
-  }
-  const handle = await decisions.request(spec)
-  const waited = await decisions.wait(handle, ctx.signal ? { signal: ctx.signal } : undefined)
-  let snapshot = waited && waited.status === 'resolved' ? waited.snapshot : null
-  if (!snapshot && typeof decisions.get === 'function') {
-    try { snapshot = await decisions.get(handle) } catch { /* ignore */ }
-  }
-  if (!snapshot || !snapshot.result) {
-    throw new Error('写操作未获确认（确认等待被取消或超时），未向远端发送任何请求')
-  }
-  const response = snapshot.result.response
-  if (!response || response.option !== WRITE_APPROVE_OPTION) {
-    throw new Error('写操作已被拒绝，未向远端发送任何请求')
-  }
-}
-
 const textResult = (text) => ({ content: [{ type: 'text', text: String(text ?? '') }] })
 
 const TOOL_DEFS = Object.entries(SCHEMAS).map(([rawName, def]) => ({
-  name: "agh_agh_plugin_reactive_resume" + '_' + rawName,
+  name: "agh_reactive_resume" + '_' + rawName,
   remoteName: rawName,
   description: def.description,
   parameters: tb(def.input),
@@ -262,8 +219,8 @@ const readOnlyHint = ["list_resumes","read_resume"]
 export const aghPluginReactiveResume = {
   id: 'ext:agh-hub/agh-plugin-reactive-resume/main',
   name: 'agh-plugin-reactive-resume',
-  version: '0.2.0',
-  apiRange: '^5.0.0',
+  version: '0.2.1',
+  apiRange: '^5.9.0',
   inject: ['tools'],
   apply(ctx) {
     for (const def of TOOL_DEFS) {
@@ -285,13 +242,17 @@ export const aghPluginReactiveResume = {
           costHint: {},
           deferLoading: true,
           discoveryGroup: 'agh-plugin-reactive-resume',
-          requiresApproval: readOnly ? 'never' : destructive ? 'destructive' : 'always',
+          // 写工具一律 'always'：outward 检查点要求这个值，且 destructive 只是描述性语义，
+          // 不能替代「每次都问一次」。
+          requiresApproval: readOnly ? 'never' : 'always',
+          // 声明 outward，由宿主在每个调用上停一次等人批：只给「允许一次 / 拒绝」，
+          // 全权限、auto-review、命令表规则、各类 grant 与 hook 都不能替人批准。
+          // 插件自己不再走 ctx.decisions —— 两层确认会变成连续弹两次，
+          // 而且手写那层在 full-access 下可能被自动通过，正是这次被指出的问题。
+          ...(readOnly ? {} : { outward: true }),
         },
         async execute(args, ctx) {
-          const input = args || {}
-          // 写操作逐次确认：确认不通过就不发请求，远端不会收到任何写入
-          if (!readOnly) await confirmRemoteWrite(def.remoteName, input, ctx)
-          return textResult(await callMcpTool(def.remoteName, input, ctx, { mutating: !readOnly }))
+          return textResult(await callMcpTool(def.remoteName, args || {}, ctx, { mutating: !readOnly }))
         },
       })
     }

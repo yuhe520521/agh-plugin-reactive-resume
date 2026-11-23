@@ -1,6 +1,6 @@
 # Reactive Resume
 
-由 gen-mcp-bridge.mjs 从 https://rxresu.me/mcp 的 tools/list 直接生成。
+由 gen-mcp-bridge.mjs 生成骨架，写工具的安全声明为手工补齐。
 
 - 工具数：7（服务端共 7）
 - 固定端点：`https://rxresu.me/mcp`（编译期常量，不接受环境变量覆盖；云端凭据只发往该地址）
@@ -11,7 +11,7 @@
 - 取消与超时：接入 AGH 工具取消信号（`ctx.signal`），并与 30s 超时合并
 - 响应上限：单次响应超过 512KB 立即中止读取
 - 响应对应性：只接受 id 与本次请求一致的 JSON-RPC 响应，SSE 混流里的其它事件一律忽略
-- 写操作确认：非只读工具每次执行前走 AGH `decisions` 端口请求确认，确认内容包含目标对象与拟执行参数
+- 写操作确认：5 个写工具声明 `meta.outward: true`（`requiresApproval: "always"`），每次调用都由 AGH 的 outward 检查点停下等人批准，只提供「允许一次 / 拒绝」。全权限模式、`/yolo`、自动审查、命令表规则、session/持久授权与 tool-call hook 都不能代为批准；拒绝即不发请求。该行为要求插件 API ≥ 5.9.0
 - 结果不确定时：写入过程中被取消、超时或读体失败，只报「远端写入结果未知」，不报成功也不报已撤销
 
 ## 自托管
@@ -33,4 +33,4 @@ key 获取方式（摘自原插件文档）：Mint an API key at `https://rxresu
 `RXRESUME_API_KEY is not configured` 或 `401 Sign-in required` ——
 这属于运行环境未就绪，不是插件缺陷。
 
-重新生成：`node gen-mcp-bridge.mjs --endpoint https://rxresu.me/mcp --key-env RXRESUME_API_KEY --prefix agh_agh_plugin_reactive_resume --out /home/node/agh-artifacts/agh-plugin-reactive-resume/agn-plugin --name @agh-hub/agh-plugin-reactive-resume`
+重新生成：`node gen-mcp-bridge.mjs --endpoint https://rxresu.me/mcp --key-env RXRESUME_API_KEY --prefix agh_reactive_resume --out /home/node/agh-artifacts/agh-plugin-reactive-resume/agn-plugin --name @agh-hub/agh-plugin-reactive-resume`
