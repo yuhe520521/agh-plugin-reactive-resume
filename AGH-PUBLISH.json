@@ -1,0 +1,13 @@
+{
+  "plugin_id": "agh-plugin-reactive-resume",
+  "package": "@yuhe520521/reactive-resume",
+  "version": "0.2.0",
+  "content_hash": "992a78f30ce644d8e23bdf59da0ed557bb35d2588af69100c9ae05f6e5fe2e7e",
+  "display_name": "Reactive Resume",
+  "display_name_zh": "Reactive Resume",
+  "source_version": null,
+  "repository": "https://github.com/yuhe520521/agh-plugin-reactive-resume",
+  "published_by": "AGH Hub pipeline",
+  "published_at": "2026-11-23T08:14:49.913Z",
+  "pipeline": "AGH Hub P4 → gh-publish"
+}
